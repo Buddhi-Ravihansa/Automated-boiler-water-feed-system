@@ -1,0 +1,726 @@
+#define F_CPU 1000000UL
+
+#define D4 eS_PORTD4  //  LCD display
+#define D5 eS_PORTD5  //  LCD display
+#define D6 eS_PORTD6  //  LCD display
+#define D7 eS_PORTD7  //  LCD display
+#define RS eS_PORTC6  //  LCD display
+#define EN eS_PORTC7  //  LCD display
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdio.h>
+#include <math.h>
+#include "lcd.h"
+#include "ds18b20/ds18b20.h"
+
+
+void reverse(char *str, int len);
+int intToStr(int x, char str[], int d);
+void ftoa(float n, char *res, int afterpoint);
+void Wait();
+
+double pH ();
+double conductivity();
+double temperature();
+int floater_A();
+
+void adc_init(void);
+int read_adc_channel(unsigned char channel);
+
+
+int main(void)
+{	
+
+	DDRA = 0x00;
+	DDRB = 0xFF;
+	DDRC = 0b11111011;
+	DDRD = 0xFF;
+	
+	PORTB |= 0xFF;
+	PORTD |= 0b00001111;
+	PORTC |= 0b00000011;
+	
+	_delay_ms(50);
+	
+	Lcd4_Init();
+	
+
+if(1){
+			
+//______________________________________________________________P R O C E S S  S T A R T____________________________________________________
+		
+		_delay_ms(2000);
+	    Lcd4_Clear();
+		Lcd4_Set_Cursor(1,0);
+		Lcd4_Write_String("Starting process...");
+		_delay_ms(3000);
+		
+		PORTB &= ~(1<<PB0);	//Boiler_t_Cooler IS OPEN
+		PORTB &= ~(1<<PB4); //Cool Water tank pump is on
+		
+		Lcd4_Clear();
+		Lcd4_Set_Cursor(1,0);
+		Lcd4_Write_String("Getting sample");
+		Lcd4_Set_Cursor(2,0);
+		Lcd4_Write_String("from boiler..");
+		
+		
+		_delay_ms(30000);// boiler_t_cooler running time
+		PORTB |= (1<<PB0); //Boiler_t_Cooler IS CLOSED
+		Lcd4_Clear();
+		Lcd4_Set_Cursor(1,0);
+		Lcd4_Write_String("Cooling...");
+		_delay_ms(60000); //extra time to cooling pump
+		PORTB |= (1<<PB4); //Cooler Water tank pump IS OFF
+		
+		Lcd4_Clear();
+		Lcd4_Set_Cursor(1,0);
+		Lcd4_Write_String("Measuring");
+		Lcd4_Set_Cursor(2,0);
+		Lcd4_Write_String("Temperature..");
+		_delay_ms(5000);
+		
+/*checking temperature */		
+            if(temperature()<30){
+			
+			Lcd4_Clear();
+			Lcd4_Set_Cursor(1,0);
+			Lcd4_Write_String("Temperature ");
+			Lcd4_Set_Cursor(2,0);
+			Lcd4_Write_String("OK");
+			
+			PORTD &= ~(1<<PD1); //TEMPERATURE OK BUlB On
+			_delay_ms(5000);
+			
+	//_________starting getting sample1 to sample tank__________________
+			
+			Lcd4_Clear();
+			Lcd4_Set_Cursor(1,0);
+			Lcd4_Write_String("Getting sample");
+			Lcd4_Set_Cursor(2,0);
+			Lcd4_Write_String("to sample tank");
+			PORTB &= ~(1<<PB1); //Cooler_t_Sample IS OPEN
+			_delay_ms(90000);
+			PORTB |= (1<<PB1); //Cooler_t_Sample IS CLOSED
+			
+			Lcd4_Clear();
+			Lcd4_Set_Cursor(1,0);
+			Lcd4_Write_String("Measuring pH &");
+			Lcd4_Set_Cursor(2,0);
+			Lcd4_Write_String("Conductivity...");
+			_delay_ms(5000); // ph value and conductivity value measuring time
+			
+/* 1_ph:ok & conductivity:ok */	
+             	if(pH()>7.0 && conductivity()<600.0){
+					 	 
+				PORTB &= ~(1<<PB7); //PH OK BULB IS ON
+				PORTD &= ~(1<<PD3); //CONDUCTIVITY OK BULB ON
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("PH OK");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("CONDUCTIVITY OK");
+				_delay_ms(5000);
+				PORTB &= ~(1<<PB2); //Sample_t_out IS OPEN
+				_delay_ms(120000);
+				PORTB |= (1<<PB2); //Sample_t_out IS CLOSED
+				
+			}//end of case 1
+			
+/* 2_ph:Not-ok & conductivity:Not-ok */		
+            if(pH()<7.0 && conductivity()>600.0){
+			
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("PH NOT OK");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("CONDUCTIVITY NOT OK");
+				
+				PORTC &= ~(1<<PC1); //BUZZER IS ON
+				PORTD &= ~(1<<PD0); //PH NOT OK BULB ON
+				PORTA &= ~(1<<PC0); //CONDUCTIVITY NOT OK BULB ON
+				_delay_ms(5000);
+				PORTC |= (1<<PC1); //BUZZER IS OFF
+				
+					
+    	//_____________________Start Adding NaOH________________________________________________
+				PORTB &= ~(1<<PB5); //NaOH pump IS ON(Adding NaOH)
+				PORTB &= ~(1<<PB2); //Sample_t_out IS ON
+					
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Adding NaOH..");
+					
+				_delay_ms(50000); //time to adding NaOH
+				PORTB |= (1<<PB5); //NaOH pump IS OFF
+				
+				_delay_ms(10000);// extra time to drain sample tank
+				PORTB |= (1<<PB2); //Sample_t_out IS CLOSED
+				
+	  //_____________________End of the process (Adding NaOH)________________________________________________			
+				
+      //_____________________Starting feed out water from boiler________________________________	
+	  	      
+				PORTB &= ~(1<<PB3); //Boiler_t_out IS OPEN
+				  
+				  Lcd4_Clear();
+				  Lcd4_Set_Cursor(1,0);
+				  Lcd4_Write_String("Drain water");
+				  Lcd4_Set_Cursor(2,0);
+				  Lcd4_Write_String("From boiler..");
+				
+				_delay_ms(60000);
+				PORTB |= (1<<PB3); //Boiler_t_out IS CLOSED
+				
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Feed water...");	
+				
+					int floatval =1;
+					while(floatval){
+						floatval = floater_A();
+						if (floatval <= 900)
+							PORTB |= (1<<PB6); //Feed pump IS ON
+						else{
+							PORTB &= ~(1<<PB6);//Feed pump off
+							floatval = 0;
+						    }
+					}
+					
+								
+	 //_____________________End of the process (feed out water from boiler)________________________________		
+	
+	
+	//_______________________Getting the sample2__________________________________	
+	            PORTD |= (1<<PD1); //TEMPERATURE OK BUlB OFF
+				PORTC |= (1<<PC0); //CONDUCTIVITY NOT OK BULB OFF
+				PORTD |= (1<<PD0); //PH NOT OK BULB OFF
+				
+				PORTB &= ~(1<<PB0);	//Boiler_t_Cooler IS OPEN
+				PORTB &= ~(1<<PB4); //Cooler Water tank pump is on	
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Getting Sample2...");
+				_delay_ms(20000); 
+				PORTB |= (1<<PB0); //Boiler_t_Cooler IS CLOSED
+				
+  //_______________________End of the process(Getting the sample2 FROM boiler to cooler)__________________________________					
+                
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Cooling...");
+				_delay_ms(60000); //extra time to cooling pump 
+				
+				PORTB |= (1<<PB4); //Cooler Water tank pump IS OFF
+				
+  //_______________________Start measuring temperature(sample2)__________________________________
+				
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Measuring");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("Temperature...");
+				_delay_ms(3000);
+				
+				if(temperature()<30.0){
+					
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("Sample-2");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("Temperature OK");
+					_delay_ms(3000);
+					PORTD &= ~(1<<PD1); //TEMPERATURE OK BUlB On
+					
+	//_________starting getting sample2 to sample tank__________________	
+					PORTB &= ~(1<<PB1); //Cooler_t_Sample IS OPEN
+					
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("Getting sample2");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("to sample tank");
+					
+					_delay_ms(90000);// Cooler_t_Sample running time
+					PORTB |= (1<<PB1); //Cooler_t_Sample IS CLOSED
+					
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("Measuring pH &");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("Conductivity...");
+					_delay_ms(5000); // ph value and conductivity value measuring time
+					
+					if(pH()>7.0 && conductivity()<600.0){
+						PORTB &= ~(1<<PB7); //PH OK BULB IS ON
+						PORTD &= ~(1<<PD3); //CONDUCTIVITY OK BULB ON
+						
+						Lcd4_Clear();
+						Lcd4_Set_Cursor(1,0);
+						Lcd4_Write_String("PH-OK");
+						Lcd4_Set_Cursor(2,0);
+						Lcd4_Write_String("CONDUCTIVITY-OK");
+						
+						PORTB &= ~(1<<PB2); //Sample_t_out IS OPEN
+						_delay_ms(120000);
+						PORTB |= (1<<PB2); //Sample_t_out IS CLOSED
+					}
+					else{
+						Lcd4_Clear();
+						Lcd4_Set_Cursor(1,0);
+						Lcd4_Write_String("check cascade");
+						Lcd4_Set_Cursor(2,0);
+						Lcd4_Write_String("& NaOH tank");
+						_delay_ms(3000);
+						
+					}
+					
+				}//end of temperature
+				else{
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("ERRor!!!!!");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("cooling system");
+					_delay_ms(3000);
+				}
+			}// end of case 2
+			
+/* 3_ph:Not-ok & conductivity:ok */			 
+                if(pH()<7.0 && conductivity()<600.0){
+					
+				PORTD &= ~(1<<PD0); //PH NOT OK BULB ON
+				PORTD &= ~(1<<PD3); //CONDUCTIVITY OK BULB ON
+				PORTC &= ~(1<<PC1); //BUZZER IS ON
+				_delay_ms(3000);
+				PORTC |= (1<<PC1); //BUZZER IS OFF
+					
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("PH NOT OK");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("CONDUCTIVITY OK");
+				
+				PORTB &= ~(1<<PB2); //Sample_t_out IS ON(empty sample tank)
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Empty");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("sample tank...");
+				_delay_ms(120000); // time to drain sample tank
+				PORTB |= (1<<PB2); //Sample_t_out IS CLOSED
+				
+			
+				
+				
+	//_________________________Starting adding NaOH _____________________________
+				PORTB &= ~(1<<PB5); //NaOH pump(adding NaOH) IS ON
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Adding NaOH...");
+				_delay_ms(90000);
+				PORTB |= (1<<PB5); //NaOH pump IS OFF
+	//_________________________End of process adding NaOH _____________________________	
+	
+	
+	//_________________________Starting Getting sample2 _____________________________	
+			    
+				PORTD |= (1<<PD1); //TEMPERATURE OK BUlB OFF
+				PORTD |= (1<<PD0); //PH NOT OK BULB OFF
+				PORTD |= (1<<PD3); //CONDUCTIVITY OK BULB OFF
+				
+		    	PORTB &= ~(1<<PB0);	//Boiler_t_Cooler IS OPEN
+				PORTB &= ~(1<<PB4); //Cooler Water tank pump is on
+				
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Getting sample2");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("From boiler...");
+				
+				_delay_ms(33000);
+				PORTB |= (1<<PB0); //Boiler_t_Cooler IS CLOSED
+				
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Cooling...");
+				_delay_ms(60000);
+				PORTB |= (1<<PB4); //Cooler Water tank pump IS OFF
+				
+	//_________________________End of Getting sample2_______________________________			
+				
+			
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Measuring ");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("Temperature..");
+				_delay_ms(5000);
+	//___________________________Measuring Temperature of sample2________________________________________________
+				if(temperature()<30){
+					
+					PORTD &= ~(1<<PD1); //temperature-ok bulb is on
+					
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("Temperature OK");
+					_delay_ms(3000);
+					
+	  //___________________GEtting sample-2 from cooler_____________________________
+	  
+					 Lcd4_Clear();
+					 Lcd4_Set_Cursor(1,0);
+					 Lcd4_Write_String("Getting sample2");
+					 Lcd4_Set_Cursor(2,0);
+					 Lcd4_Write_String("to sample tank");
+					 
+					 _delay_ms(120000);// Cooler_t_Sample running time
+					 PORTB |= (1<<PB1); //Cooler_t_Sample IS CLOSED
+					 
+					 Lcd4_Clear();
+					 Lcd4_Set_Cursor(1,0);
+					 Lcd4_Write_String("Measuring pH &");
+					 Lcd4_Set_Cursor(2,0);
+					 Lcd4_Write_String("Conductivity...");
+					 _delay_ms(5000); // ph value and conductivity value measuring time
+					
+					if(pH()>7 && conductivity()<600){
+						PORTB &= ~(1<<PB7); //PH OK BULB IS ON
+						PORTD &= ~(1<<PD3); //CONDUCTIVITY OK BULB ON
+						
+						Lcd4_Clear();
+						Lcd4_Set_Cursor(1,0);
+						Lcd4_Write_String("PH OK");
+						Lcd4_Set_Cursor(2,0);
+						Lcd4_Write_String("CONDUCTIVITY OK");
+
+						PORTB &= ~(1<<PB2); //Sample_t_out IS OPEN
+						_delay_ms(120000);
+						PORTB |= (1<<PB2); //Sample_t_out IS CLOSE
+						
+					}
+					else{
+						Lcd4_Clear();
+						Lcd4_Set_Cursor(1,0);
+						Lcd4_Write_String("Check NaOH");
+						Lcd4_Set_Cursor(2,0);
+						Lcd4_Write_String("Tank !!!");
+					    }
+					
+				}//end of temperature below 30
+				else{
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("ERRor!!!!!");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("cooling system");
+					_delay_ms(3000);
+				}
+			} // end of case 3
+			
+/* 4_ph:ok & conductivity:Not-ok */			 
+                if(pH()>7 && conductivity()>600){
+				PORTB &= ~(1<<PB7); //PH OK BULB IS ON
+				PORTC &= ~(1<<PC0); //CONDUCTIVITY NOT OK BULB ON
+				PORTC &= ~(1<<PC1); //BUZZER IS ON
+				
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("PH OK");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("CONDUCTIVITY NOT OK");
+				_delay_ms(3000);
+				PORTC |= (1<<PC1); //BUZZER IS OFF
+				
+	//_____________________Starting feed out water from boiler________________________________	
+	  	      
+				PORTB &= ~(1<<PB3); //Boiler_t_out IS OPEN
+				PORTB &= ~(1<<PB2); //Sample_t_out pump is on
+				  
+				  Lcd4_Clear();
+				  Lcd4_Set_Cursor(1,0);
+				  Lcd4_Write_String("Drain water");
+				  Lcd4_Set_Cursor(2,0);
+				  Lcd4_Write_String("From boiler..");
+				
+				_delay_ms(90000);
+				PORTB |= (1<<PB3); //Boiler_t_out IS CLOSED
+				_delay_ms(30000); //Extra time to drain sample tank
+				PORTB |= (1<<PB2); //Sample_t_out pump is off
+				
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Feed water..");	
+				
+					int floatval =1;
+					while(floatval){
+						floatval = floater_A();
+						if (floatval <= 900)
+							PORTB |= (1<<PB6); //Feed pump IS ON
+						else{
+							PORTB &= ~(1<<PB6);//Feed pump off
+							floatval = 0;
+						    }
+					}
+					
+					
+								
+	 //_____________________End of the process (Drain & feeding water from boiler)________________________________		
+
+	//__________________________________________________Getting sample-2 from boiler__________________________________________________
+				PORTD |= (1<<PD1); //TEMPERATURE OK BUlB OFF
+				PORTB |= (1<<PB7); //PH OK BULB IS OFF
+				PORTC |= (1<<PC0); //CONDUCTIVITY NOT OK BULB OFF
+				
+				PORTB &= ~(1<<PB0);	//Boiler_t_Cooler IS OPEN
+				PORTB &= ~(1<<PB4); //Cooler Water tank pump is on
+				
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Getting Sample-2...");
+				_delay_ms(33000);
+				
+				PORTB |= (1<<PB0); //Boiler_t_Cooler IS CLOSED
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Cooling..");
+				_delay_ms(60000); //extra time to cooling
+				PORTB |= (1<<PB4); //Cooler Water tank pump IS OFF
+	//__________________________________________________End of process (Getting sample-2 from boiler)__________________________________________________	
+				Lcd4_Clear();
+				Lcd4_Set_Cursor(1,0);
+				Lcd4_Write_String("Measuring sample-2");
+				Lcd4_Set_Cursor(2,0);
+				Lcd4_Write_String("Temperature....");
+				_delay_ms(5000);
+				
+				if(temperature()<30){
+					
+					PORTD &= ~(1<<PD1); //temperature-ok bulb is on
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("Sample-2");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("Temperature-OK");
+					_delay_ms(3000);
+					
+  //_______________________________Getting sample-2 from cooler to sample tank_______________________
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("cooler to");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("sample tank");
+					PORTB &= ~(1<<PB1); //Cooler_t_Sample IS OPEN
+					_delay_ms(120000);
+					PORTB |= (1<<PB1); //Cooler_t_Sample IS CLOSED
+					
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("Measuring pH &");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("Conductivity...");
+					_delay_ms(5000); // ph value and conductivity value measuring time
+					
+
+					if(pH()>7 && conductivity() <600){
+						
+						PORTB &= ~(1<<PB7); //PH OK BULB IS ON
+						PORTD &= ~(1<<PD3); //CONDUCTIVITY OK BULB ON
+						
+						Lcd4_Clear();
+						Lcd4_Set_Cursor(1,0);
+						Lcd4_Write_String("PH OK");
+						Lcd4_Set_Cursor(2,0);
+						Lcd4_Write_String("CONDUCTIVITY OK");
+						_delay_ms(3000);
+						
+						PORTB &= ~(1<<PB2); //Sample_t_out IS OPEN
+						_delay_ms(120000);
+						PORTB |= (1<<PB2); //Sample_t_out IS CLOSED
+					}
+					
+					if(pH()>7 && conductivity() >600){
+						Lcd4_Clear();
+						Lcd4_Set_Cursor(1,0);
+						Lcd4_Write_String("Check Cascade");
+						Lcd4_Set_Cursor(2,0);
+						Lcd4_Write_String("water!!!");
+					}
+					
+				}// end of statement temperature-ok
+					
+			else {
+					Lcd4_Clear();
+					Lcd4_Set_Cursor(1,0);
+					Lcd4_Write_String("ERRor!!!!!");
+					Lcd4_Set_Cursor(2,0);
+					Lcd4_Write_String("cooling system");
+				 	_delay_ms(3000);
+				 }
+				
+			  } // end of case 4
+			
+		  }//end of temperature-ok(sample-1)
+
+	  else{
+			Lcd4_Clear();
+			Lcd4_Set_Cursor(1,0);
+			Lcd4_Write_String("Check Cooling");
+			Lcd4_Set_Cursor(2,0);
+			Lcd4_Write_String("system..!!!");
+			PORTC &= ~(1<<PC1); //BUZZER IS On
+			_delay_ms(3000);
+			PORTC |= (1<<PC1); //BUZZER IS OFF
+		  }	 // temperature not-ok
+	  }// end of terminating if condition
+ }// end of main function
+
+
+double pH (){
+	double y, x;
+	int ph_adc_result;
+	ph_adc_result = read_adc_channel(0);
+	x = (ph_adc_result * 5) / 1024.0;
+	y = -5.70*x + 21.34;
+	//return ph_adc_result;
+	return y;
+
+	
+}
+
+double conductivity(){
+	double y, x;
+	int conductivity_adc_result;
+	conductivity_adc_result=read_adc_channel(1);
+	return (1024-conductivity_adc_result);
+	
+}
+
+double temperature(){
+	return ds18b20_gettemp();
+	
+
+}
+
+int floater_A(){
+	int wlevelA_adc_result; // define variable
+	wlevelA_adc_result=read_adc_channel(3);
+	return wlevelA_adc_result;
+}
+
+// reverses a string 'str' of length 'len'
+void reverse(char *str, int len)
+{
+	int i=0, j=len-1, temp;
+	while (i<j)
+	{
+		temp = str[i];
+		str[i] = str[j];
+		str[j] = temp;
+		i++; j--;
+	}
+}
+
+// Converts a given integer x to string str[].  d is the number
+// of digits required in output. If d is more than the number
+// of digits in x, then 0s are added at the beginning.
+int intToStr(int x, char str[], int d)
+{
+	int i = 0;
+	while (x)
+	{
+		str[i++] = (x%10) + '0';
+		x = x/10;
+	}
+	
+	// If number of digits required is more, then
+	// add 0s at the beginning
+	while (i < d)
+	str[i++] = '0';
+	
+	reverse(str, i);
+	str[i] = '\0';
+	return i;
+}
+
+// Converts a floating point number to string.
+void ftoa(float n, char *res, int afterpoint)
+{
+	// Extract integer part
+	int ipart = (int)n;
+	
+	// Extract floating part
+	float fpart = n - (float)ipart;
+	
+	// convert integer part to string
+	int i = intToStr(ipart, res, 0);
+	
+	// check for display option after point
+	if (afterpoint != 0)
+	{
+		res[i] = '.';  // add dot
+		
+		// Get the value of fraction part upto given no.
+		// of points after dot. The third parameter is needed
+		// to handle cases like 233.007
+		fpart = fpart * pow(10, afterpoint);
+		
+		intToStr((int)fpart, res + i + 1, afterpoint);
+	}
+}
+
+void Wait()
+{
+	int i;
+	for(i=0;i<20;i++)
+	_delay_loop_2(0);
+}
+
+
+void adc_init(void)
+{
+	ADCSRA=(1<<ADEN)|(1<<ADSC)|(1<<ADATE)|(1<<ADPS2);
+	SFIOR=0x00;
+}
+
+int read_adc_channel(unsigned char channel)
+{
+	int adc_value;
+	unsigned char temp;
+	ADMUX=(1<<REFS0) | channel;
+	_delay_ms(1);
+	temp=ADCL;
+	adc_value=ADCH;
+	adc_value=(adc_value<<8)|temp;
+	return adc_value;
+}
+
+/* 
+ Boiler_to_Cooler solenoid -> B0
+ Cooler to sample solenoid -> B1
+ sample to out    solenoid -> B2
+ Boiler to out    solenoid -> B3
+
+     Cooling  5v    pump   -> B4
+     NaOH     5v    pump   -> B5
+     Feeding 12v    pump   -> B6
+
+         PH   Green  Bulb  -> B7
+         PH   Red    Bulb  -> D0
+Temperature   Green  Bulb  -> D1
+Temperature   Red    Bulb  -> D2
+Conductivity  Green  Bulb  -> D3
+Conductivity  Red    Bulb  -> C0
+
+                   Buzzer  -> C1    
+------------------------------------------------
+
+               PH  Sensor  -> A0
+     Conductivity  Sensor  -> A1
+     Temperature   Sensor  -> C2
+     Water floater switch  -> A3		
+	 
+	 */
